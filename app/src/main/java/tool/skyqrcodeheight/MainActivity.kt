@@ -79,15 +79,20 @@ class MainActivity : AppCompatActivity() {
                             val height = heightMatch?.groups?.get(1)?.value?.toDoubleOrNull()
                             val scale = scaleMatch?.groups?.get(1)?.value?.toDoubleOrNull()
 
-                            val finalHeight = if (height != null && scale != null) {
-                                42.7509 - ((-0.0652 * height * height + 3.0729 * height + 35.4599) * (0.126 * scale + 0.7) / 0.7)
+                            /*val xjbHeight = if (height != null && scale != null) {
+                                42.7508 - ((-0.0652 * height * height + 3.0729 * height + 35.4599) * (0.126 * scale + 0.7) / 0.7)
+                            } else null*/
+
+                            val startupzHeight = if (height != null && scale != null) {
+                                7.6 - 8.3 * scale - 3 * height
                             } else null
 
                             val resultText = buildString {
                                 append("解码内容：\n$decoded")
                                 if (height != null) append("\nheight: $height")
                                 if (scale != null) append("\nscale: $scale")
-                                if (finalHeight != null) append("\n\n你的身高为: %.4f".format(finalHeight))
+                                if (startupzHeight != null) append("\n\n你的身高为: %.4f".format(startupzHeight))
+                                // if (xjbHeight != null) append("\n\n按照@小骄宝你的身高为: %.4f".format(xjbHeight))
                             }
                             resultView.text = resultText
                         } catch (e: Exception) {
