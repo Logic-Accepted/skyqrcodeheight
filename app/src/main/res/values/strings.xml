@@ -1,3 +1,9 @@
 <resources>
     <string name="app_name">skyqrcodeheight</string>
+    <string name="previewpic">预览图像</string>
+    <string name="choosepic">选择图片</string>
+    <string name="startscan">开始扫码</string>
+    <string name="resultarea">识别结果将在这里显示</string>
+    <string name="repourl">项目地址：https://github.com/Logic-Accepted/skyqrcodeheight</string>
+    <string name="info"><![CDATA[游戏内设置->更多->线下活动外观二维码]]></string>
 </resources>

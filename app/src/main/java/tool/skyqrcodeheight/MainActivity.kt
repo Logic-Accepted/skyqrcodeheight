@@ -15,10 +15,16 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.launch
 import java.io.InputStream
-import java.util.regex.Pattern
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.set
+import androidx.core.graphics.get
+import androidx.core.graphics.scale
 
 class MainActivity : AppCompatActivity() {
     private lateinit var imageView: ImageView
@@ -53,10 +59,44 @@ class MainActivity : AppCompatActivity() {
 
         scanButton.setOnClickListener {
             selectedBitmap?.let {
-                val centerCropped = cropCenter(it, 0.9f)
+                val centerCropped = cropCenter(it, 1.0f)
                 val inverted = invertColors(centerCropped)
-                imageView.setImageBitmap(inverted)
-                scanQRCode(inverted)
+                val enhanced = enhanceImage(inverted)
+                imageView.setImageBitmap(enhanced)
+
+                lifecycleScope.launch {
+                    val rawValue = scanWithMultipleScales(enhanced)
+                    if (rawValue != null) {
+                        try {
+                            val decoded = String(Base64.decode(rawValue, Base64.DEFAULT))
+
+                            val heightRegex = Regex("eight[^:=\\d\\-.]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?)")
+                            val scaleRegex = Regex("cale[^:=\\d\\-.]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?)")
+
+                            val heightMatch = heightRegex.find(decoded)
+                            val scaleMatch = scaleRegex.find(decoded)
+
+                            val height = heightMatch?.groups?.get(1)?.value?.toDoubleOrNull()
+                            val scale = scaleMatch?.groups?.get(1)?.value?.toDoubleOrNull()
+
+                            val finalHeight = if (height != null && scale != null) {
+                                42.7509 - ((-0.0652 * height * height + 3.0729 * height + 35.4599) * (0.126 * scale + 0.7) / 0.7)
+                            } else null
+
+                            val resultText = buildString {
+                                append("解码内容：\n$decoded")
+                                if (height != null) append("\nheight: $height")
+                                if (scale != null) append("\nscale: $scale")
+                                if (finalHeight != null) append("\n\n你的身高为: %.4f".format(finalHeight))
+                            }
+                            resultView.text = resultText
+                        } catch (e: Exception) {
+                            resultView.text = "扫码成功，但Base64解码失败：\n$rawValue"
+                        }
+                    } else {
+                        resultView.text = "多次缩放后仍未识别二维码"
+                    }
+                }
             } ?: run {
                 resultView.text = "请先选择一张图片"
             }
@@ -76,63 +116,100 @@ class MainActivity : AppCompatActivity() {
         val width = bitmap.width
         val height = bitmap.height
         val config = bitmap.config ?: Bitmap.Config.ARGB_8888
-        val inverted = Bitmap.createBitmap(width, height, config)
+        val inverted = createBitmap(width, height, config)
 
         for (x in 0 until width) {
             for (y in 0 until height) {
-                val pixel = bitmap.getPixel(x, y)
+                val pixel = bitmap[x, y]
                 val r = 255 - Color.red(pixel)
                 val g = 255 - Color.green(pixel)
                 val b = 255 - Color.blue(pixel)
                 val a = Color.alpha(pixel)
-                inverted.setPixel(x, y, Color.argb(a, r, g, b))
+                inverted[x, y] = Color.argb(a, r, g, b)
             }
         }
         return inverted
     }
 
-    private fun scanQRCode(bitmap: Bitmap) {
-        val image = InputImage.fromBitmap(bitmap, 0)
+    private suspend fun scanWithMultipleScales(bitmap: Bitmap): String? {
         val scanner = BarcodeScanning.getClient()
+        val scales = listOf(0.9f, 1.0f, 1.1f, 1.2f)
 
-        scanner.process(image)
-            .addOnSuccessListener { barcodes ->
-                if (barcodes.isEmpty()) {
-                    resultView.text = "未能识别二维码"
-                    return@addOnSuccessListener
-                }
-                val rawValue = barcodes[0].rawValue ?: ""
-                try {
-                    val decoded = String(Base64.decode(rawValue, Base64.DEFAULT))
+        for (scale in scales) {
+            val resized =
+                bitmap.scale((bitmap.width * scale).toInt(), (bitmap.height * scale).toInt())
+            val image = InputImage.fromBitmap(resized, 0)
+            try {
+                val barcodes = scanner.process(image).await()
+                val barcode = barcodes.firstOrNull()
+                if (barcode != null) return barcode.rawValue
+            } catch (_: Exception) {
 
-                    val heightRegex = Pattern.compile("\"?height\"?\\s*[:=]\\s*(-?\\d+(?:\\.\\d+)?)")
-                    val scaleRegex = Pattern.compile("\"?scale\"?\\s*[:=]\\s*(\\d+(?:\\.\\d+)?)")
-
-                    val heightMatch = heightRegex.matcher(decoded)
-                    val scaleMatch = scaleRegex.matcher(decoded)
-
-                    val height = if (heightMatch.find()) heightMatch.group(1)?.toDoubleOrNull() else null
-                    val scale = if (scaleMatch.find()) scaleMatch.group(1)?.toDoubleOrNull() else null
-
-                    val finalHeight = if (height != null && scale != null) {
-                        42.7509 - ((-0.0652 * height * height + 3.0729 * height + 35.4599) * (0.126 * scale + 0.7) / 0.7)
-                    } else {
-                        null
-                    }
-
-                    val resultText = buildString {
-                        append("解码内容：\n$decoded")
-                        if (height != null) append("\nheight: $height")
-                        if (scale != null) append("\nscale: $scale")
-                        if (finalHeight != null) append("\n\n你的身高为: %.4f".format(finalHeight))
-                    }
-                    resultView.text = resultText
-                } catch (e: Exception) {
-                    resultView.text = "扫码成功，但Base64解码失败：\n$rawValue"
-                }
             }
-            .addOnFailureListener {
-                resultView.text = "识别失败：${it.message}"
-            }
+        }
+        return null
     }
+
+    private fun enhanceImage(src: Bitmap): Bitmap {
+        val width = src.width
+        val height = src.height
+        val gray = IntArray(width * height)
+        val pixels = IntArray(width * height)
+        src.getPixels(pixels, 0, width, 0, 0, width, height)
+
+        for (i in pixels.indices) {
+            val c = pixels[i]
+            val r = Color.red(c)
+            val g = Color.green(c)
+            val b = Color.blue(c)
+            val grayVal = (0.3 * r + 0.59 * g + 0.11 * b).toInt()
+            gray[i] = grayVal
+        }
+
+        val minGray = gray.minOrNull() ?: 0
+        val maxGray = gray.maxOrNull() ?: 255
+        val contrastStretch = 255f / (maxGray - minGray).coerceAtLeast(1)
+
+        val stretched = IntArray(width * height)
+        for (i in gray.indices) {
+            val v = ((gray[i] - minGray) * contrastStretch).toInt().coerceIn(0, 255)
+            stretched[i] = v
+        }
+
+        val kernel = arrayOf(
+            intArrayOf(0, -1, 0),
+            intArrayOf(-1, 5, -1),
+            intArrayOf(0, -1, 0)
+        )
+
+        val result = createBitmap(width, height)
+
+        for (y in 1 until height - 1) {
+            for (x in 1 until width - 1) {
+                var sum = 0
+                for (ky in 0..2) {
+                    for (kx in 0..2) {
+                        val px = x + kx - 1
+                        val py = y + ky - 1
+                        sum += stretched[py * width + px] * kernel[ky][kx]
+                    }
+                }
+                val v = sum.coerceIn(0, 255)
+                val a = Color.alpha(pixels[y * width + x])
+                result[x, y] = Color.argb(a, v, v, v)
+            }
+        }
+
+        for (x in 0 until width) {
+            result[x, 0] = src[x, 0]
+            result[x, height - 1] = src[x, height - 1]
+        }
+        for (y in 0 until height) {
+            result[0, y] = src[0, y]
+            result[width - 1, y] = src[width - 1, y]
+        }
+
+        return result
+    }
+
 }
