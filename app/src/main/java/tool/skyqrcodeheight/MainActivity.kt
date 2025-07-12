@@ -10,8 +10,10 @@ import android.net.Uri
 import android.os.Bundle
 import android.provider.MediaStore
 import android.util.Base64
+import android.view.View
 import android.widget.Button
 import android.widget.ImageView
+import android.widget.ProgressBar
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -19,6 +21,13 @@ import androidx.core.graphics.createBitmap
 import androidx.core.graphics.get
 import androidx.core.graphics.scale
 import androidx.core.graphics.set
+import com.google.zxing.BinaryBitmap
+import com.google.zxing.MultiFormatReader
+import com.google.zxing.Result
+import com.google.zxing.RGBLuminanceSource
+import com.google.zxing.common.GlobalHistogramBinarizer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
@@ -31,6 +40,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var imageView: ImageView
     private lateinit var resultView: TextView
     private var selectedBitmap: Bitmap? = null
+    private lateinit var loadingSpinner: ProgressBar
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -38,6 +48,7 @@ class MainActivity : AppCompatActivity() {
 
         imageView = findViewById(R.id.imageView)
         resultView = findViewById(R.id.resultView)
+        loadingSpinner = findViewById(R.id.loadingSpinner)
 
         val selectButton = findViewById<Button>(R.id.selectButton)
         val scanButton = findViewById<Button>(R.id.scanButton)
@@ -71,12 +82,16 @@ class MainActivity : AppCompatActivity() {
 
         scanButton.setOnClickListener {
             selectedBitmap?.let {
-                val inverted = invertColors(it)
-                val enhanced = enhanceImage(inverted)
-                imageView.setImageBitmap(enhanced)
-
+                loadingSpinner.visibility = View.VISIBLE
                 lifecycleScope.launch {
-                    val rawValue = scanWithMultipleScales(enhanced)
+                    kotlinx.coroutines.delay(1)
+                    val rawValue = withContext(Dispatchers.Default) {
+                        val inverted = invertColors(it)
+                        val enhanced = enhanceImage(inverted)
+                        imageView.setImageBitmap(enhanced)
+                        scanWithMultipleScales(enhanced)
+                    }
+                    loadingSpinner.visibility = View.GONE
                     if (rawValue != null) {
                         try {
                             val decoded = String(Base64.decode(rawValue, Base64.DEFAULT))
@@ -157,7 +172,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private suspend fun scanWithMultipleScales(bitmap: Bitmap): String? {
-        val scanner = BarcodeScanning.getClient()
+        val mlkitScanner = BarcodeScanning.getClient()
         val scales = listOf(0.9f, 1.0f, 1.1f, 1.2f, 1.5f)
 
         for (scale in scales) {
@@ -165,12 +180,17 @@ class MainActivity : AppCompatActivity() {
                 bitmap.scale((bitmap.width * scale).toInt(), (bitmap.height * scale).toInt())
             val image = InputImage.fromBitmap(resized, 0)
             try {
-                val barcodes = scanner.process(image).await()
+                val barcodes = mlkitScanner.process(image).await()
                 val barcode = barcodes.firstOrNull()
-                if (barcode != null) return barcode.rawValue
-            } catch (_: Exception) {
-
-            }
+                if (barcode != null){
+                    return barcode.rawValue
+                } else {
+                    val fallback = tryZXingDecode(resized)
+                    if (fallback != null) {
+                        return fallback
+                    }
+                }
+            } catch (_: Exception) { }
         }
         return null
     }
@@ -243,8 +263,25 @@ class MainActivity : AppCompatActivity() {
         return formatter.format(value)
     }
 
+    private fun tryZXingDecode(bitmap: Bitmap): String? {
+        val intArray = IntArray(bitmap.width * bitmap.height)
+        bitmap.getPixels(intArray, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+        val source = RGBLuminanceSource(bitmap.width, bitmap.height, intArray)
+        val bitmapZX = BinaryBitmap(GlobalHistogramBinarizer(source))
+        return try {
+            val result: Result = MultiFormatReader().decode(bitmapZX)
+            result.text
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun showChangelogDialog() {
         val changelog = """
+        v1.4
+        - 加入协程防止阻塞主线程
+        - 使用离线 ML Kit 提高兼容性
+        - 使用 ZXing 作为 fallback 提高识别率
         v1.3：
         - 支持识别科学计数法格式的 scale 值
         - 新增身高理论最值的显示
@@ -255,7 +292,7 @@ class MainActivity : AppCompatActivity() {
         - 新增自动多倍率缩放扫描，同上
         - 更换使用更广泛的身高算法
         v1.1
-        - 修正scale不能为负值的bug
+        - 修正 scale 不能为负值的bug
         - 修正不能完全解码导致的无法识别
     """.trimIndent()
 
