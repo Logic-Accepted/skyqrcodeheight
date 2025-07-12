@@ -96,8 +96,13 @@ class MainActivity : AppCompatActivity() {
                         try {
                             val decoded = String(Base64.decode(rawValue, Base64.DEFAULT))
 
-                            val scaleRegex = Regex("cale[^:=\\d\\-.eE]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?)")
-                            val heightRegex = Regex("eight[^:=\\d\\-.eE]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?)")
+                            //val scaleRegex = Regex("cale[^:=\\d\\-.eE]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?)")
+                            //val heightRegex = Regex("eight[^:=\\d\\-.eE]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?)")
+
+                            val scaleRegex = Regex("cale[^:=\\d\\-.eE]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?)(?![\\w.])")
+                            val heightRegex = Regex("eight[^:=\\d\\-.eE]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?)(?![\\w.])")
+
+
 
 
                             val heightMatch = heightRegex.find(decoded)
@@ -130,20 +135,29 @@ class MainActivity : AppCompatActivity() {
                             } else null
 
                             val resultText = buildString {
-                                append("解码内容：\n$decoded")
-                                if (height != null) append("\nheight: $height")
-                                if (scale != null) append("\nscale: $formattedScale")
-                                if (startupZHeight != null) append("\n\n你的身高为: %.4f".format(startupZHeight))
+                                if (startupZHeight != null) append("\n你的身高为: %.4f".format(startupZHeight))
                                 // if (xjbHeight != null) append("\n\n按照@小骄宝你的身高为: %.4f".format(xjbHeight))
-                                if (maxHeight != null) append("\n\n最大身高为: %.4f".format(maxHeight))
-                                if (minHeight != null) append("\n\n最小身高为: %.4f".format(minHeight))
+                                if (maxHeight != null) append("\n最大身高为: %.4f".format(maxHeight))
+                                if (minHeight != null) append("\n最小身高为: %.4f".format(minHeight))
+                                if (height != null) {
+                                    append("\n\nheight: $height")
+                                } else {
+                                    append("\n\nheight: 数据损坏")
+                                }
+                                if (scale != null) {
+                                    append("\nscale: $formattedScale")
+                                } else {
+                                    append("\nscale: 数据损坏")
+                                }
+                                append("\n\n解码内容：$decoded")
+                                if (height == null || scale == null) showDataBrokenDialog()
                             }
                             resultView.text = resultText
                         } catch (_: Exception) {
                             resultView.text = "扫码成功但解码失败"
                         }
                     } else {
-                        resultView.text = "多次缩放后仍未识别二维码"
+                        resultView.text = "多次缩放后仍未识别二维码，可以尝试更换手机重新截图二维码或者更换装扮重新截图二维码"
                     }
                 }
             } ?: run {
@@ -184,12 +198,12 @@ class MainActivity : AppCompatActivity() {
                 val barcode = barcodes.firstOrNull()
                 if (barcode != null){
                     return barcode.rawValue
-                } else {
-                    val fallback = tryZXingDecode(resized)
+                } /*else {
+                    val fallback = tryZxingDecode(resized)
                     if (fallback != null) {
                         return fallback
                     }
-                }
+                }*/
             } catch (_: Exception) { }
         }
         return null
@@ -263,7 +277,7 @@ class MainActivity : AppCompatActivity() {
         return formatter.format(value)
     }
 
-    private fun tryZXingDecode(bitmap: Bitmap): String? {
+    private fun tryZxingDecode(bitmap: Bitmap): String? {
         val intArray = IntArray(bitmap.width * bitmap.height)
         bitmap.getPixels(intArray, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
         val source = RGBLuminanceSource(bitmap.width, bitmap.height, intArray)
@@ -278,10 +292,14 @@ class MainActivity : AppCompatActivity() {
 
     private fun showChangelogDialog() {
         val changelog = """
+        v1.5
+        - 使用更可靠的正则检测数据是否完整
+        - 加入数据存在问题时的操作指引弹窗
+        - Zxing 存在问题，暂时不用
         v1.4
         - 加入协程防止阻塞主线程
         - 使用离线 ML Kit 提高兼容性
-        - 使用 ZXing 作为 fallback 提高识别率
+        - 使用 Zxing 作为 fallback 提高识别率
         v1.3：
         - 支持识别科学计数法格式的 scale 值
         - 新增身高理论最值的显示
@@ -303,5 +321,16 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun showDataBrokenDialog() {
+        val dataBrokenMsg = """
+        你的二维码解析时存在问题，请切换装扮然后重新截图二维码再尝试
+    """.trimIndent()
+
+        AlertDialog.Builder(this)
+            .setTitle("请重试")
+            .setMessage(dataBrokenMsg)
+            .setPositiveButton("关闭", null)
+            .show()
+    }
 
 }
