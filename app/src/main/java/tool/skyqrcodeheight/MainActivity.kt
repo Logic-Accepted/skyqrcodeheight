@@ -1,7 +1,7 @@
 // MainActivity.kt
 package tool.skyqrcodeheight
 
-import android.app.Activity
+import android.app.AlertDialog
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -15,16 +15,17 @@ import android.widget.ImageView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.graphics.createBitmap
+import androidx.core.graphics.get
+import androidx.core.graphics.scale
+import androidx.core.graphics.set
 import androidx.lifecycle.lifecycleScope
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
-import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.tasks.await
 import java.io.InputStream
-import androidx.core.graphics.createBitmap
-import androidx.core.graphics.set
-import androidx.core.graphics.get
-import androidx.core.graphics.scale
+import java.text.DecimalFormat
 
 class MainActivity : AppCompatActivity() {
     private lateinit var imageView: ImageView
@@ -42,7 +43,7 @@ class MainActivity : AppCompatActivity() {
         val scanButton = findViewById<Button>(R.id.scanButton)
 
         val pickImageLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK) {
+            if (result.resultCode == RESULT_OK) {
                 val uri: Uri? = result.data?.data
                 uri?.let {
                     val inputStream: InputStream? = contentResolver.openInputStream(it)
@@ -52,6 +53,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        val versionView = findViewById<TextView>(R.id.versionView)
+
+        val versionName = packageManager.getPackageInfo(packageName, 0).versionName
+        versionView.text = getString(R.string.version_label, versionName)
+
+
+        versionView.setOnClickListener {
+            showChangelogDialog()
+        }
+
+
         selectButton.setOnClickListener {
             val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
             pickImageLauncher.launch(intent)
@@ -59,8 +71,7 @@ class MainActivity : AppCompatActivity() {
 
         scanButton.setOnClickListener {
             selectedBitmap?.let {
-                val centerCropped = cropCenter(it, 1.0f)
-                val inverted = invertColors(centerCropped)
+                val inverted = invertColors(it)
                 val enhanced = enhanceImage(inverted)
                 imageView.setImageBitmap(enhanced)
 
@@ -70,33 +81,51 @@ class MainActivity : AppCompatActivity() {
                         try {
                             val decoded = String(Base64.decode(rawValue, Base64.DEFAULT))
 
-                            val heightRegex = Regex("eight[^:=\\d\\-.]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?)")
-                            val scaleRegex = Regex("cale[^:=\\d\\-.]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?)")
+                            val scaleRegex = Regex("cale[^:=\\d\\-.eE]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?)")
+                            val heightRegex = Regex("eight[^:=\\d\\-.eE]{0,5}[:=]\\s*(-?\\d+(\\.\\d+)?([eE][+-]?\\d+)?)")
+
 
                             val heightMatch = heightRegex.find(decoded)
                             val scaleMatch = scaleRegex.find(decoded)
 
                             val height = heightMatch?.groups?.get(1)?.value?.toDoubleOrNull()
-                            val scale = scaleMatch?.groups?.get(1)?.value?.toDoubleOrNull()
+
+                            val scaleStr = scaleMatch?.groups?.get(1)?.value
+                            val scale = scaleStr?.toDoubleOrNull()
+                            val formattedScale = if (scaleStr?.contains(Regex("[eE]")) == true && scale != null) {
+                                formatNormalDecimal(scale)
+                            } else {
+                                scaleStr ?: "未知"
+                            }
 
                             /*val xjbHeight = if (height != null && scale != null) {
                                 42.7508 - ((-0.0652 * height * height + 3.0729 * height + 35.4599) * (0.126 * scale + 0.7) / 0.7)
                             } else null*/
 
-                            val startupzHeight = if (height != null && scale != null) {
+                            val startupZHeight = if (height != null && scale != null) {
                                 7.6 - 8.3 * scale - 3 * height
+                            } else null
+
+                            val maxHeight = if (scale != null) {
+                                7.6 - 8.3 * scale - 3 * 2.0
+                            } else null
+
+                            val minHeight = if (scale != null) {
+                                7.6 - 8.3 * scale - 3 * -2.0
                             } else null
 
                             val resultText = buildString {
                                 append("解码内容：\n$decoded")
                                 if (height != null) append("\nheight: $height")
-                                if (scale != null) append("\nscale: $scale")
-                                if (startupzHeight != null) append("\n\n你的身高为: %.4f".format(startupzHeight))
+                                if (scale != null) append("\nscale: $formattedScale")
+                                if (startupZHeight != null) append("\n\n你的身高为: %.4f".format(startupZHeight))
                                 // if (xjbHeight != null) append("\n\n按照@小骄宝你的身高为: %.4f".format(xjbHeight))
+                                if (maxHeight != null) append("\n\n最大身高为: %.4f".format(maxHeight))
+                                if (minHeight != null) append("\n\n最小身高为: %.4f".format(minHeight))
                             }
                             resultView.text = resultText
-                        } catch (e: Exception) {
-                            resultView.text = "扫码成功，但Base64解码失败：\n$rawValue"
+                        } catch (_: Exception) {
+                            resultView.text = "扫码成功但解码失败"
                         }
                     } else {
                         resultView.text = "多次缩放后仍未识别二维码"
@@ -106,15 +135,6 @@ class MainActivity : AppCompatActivity() {
                 resultView.text = "请先选择一张图片"
             }
         }
-    }
-
-    private fun cropCenter(bitmap: Bitmap, ratio: Float = 0.67f): Bitmap {
-        val width = bitmap.width
-        val height = bitmap.height
-        val size = (minOf(width, height) * ratio).toInt()
-        val left = (width - size) / 2
-        val top = (height - size) / 2
-        return Bitmap.createBitmap(bitmap, left, top, size, size)
     }
 
     private fun invertColors(bitmap: Bitmap): Bitmap {
@@ -138,7 +158,7 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun scanWithMultipleScales(bitmap: Bitmap): String? {
         val scanner = BarcodeScanning.getClient()
-        val scales = listOf(0.9f, 1.0f, 1.1f, 1.2f)
+        val scales = listOf(0.9f, 1.0f, 1.1f, 1.2f, 1.5f)
 
         for (scale in scales) {
             val resized =
@@ -216,5 +236,35 @@ class MainActivity : AppCompatActivity() {
 
         return result
     }
+
+    fun formatNormalDecimal(value: Double): String {
+        val formatter = DecimalFormat("0.################")
+        formatter.isGroupingUsed = false
+        return formatter.format(value)
+    }
+
+    private fun showChangelogDialog() {
+        val changelog = """
+        v1.3：
+        - 支持识别科学计数法格式的 scale 值
+        - 新增身高理论最值的显示
+        - 修改缩放的逻辑，提高识别率
+        - 新增版本号和日志显示
+        v1.2
+        - 新增图像增强，提高识别率
+        - 新增自动多倍率缩放扫描，同上
+        - 更换使用更广泛的身高算法
+        v1.1
+        - 修正scale不能为负值的bug
+        - 修正不能完全解码导致的无法识别
+    """.trimIndent()
+
+        AlertDialog.Builder(this)
+            .setTitle("更新日志")
+            .setMessage(changelog)
+            .setPositiveButton("关闭", null)
+            .show()
+    }
+
 
 }

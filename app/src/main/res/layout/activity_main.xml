@@ -11,7 +11,7 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:orientation="vertical"
-            android:layout_above="@+id/footerText" >
+            android:layout_above="@+id/URLTextView" >
         <ImageView
             android:id="@+id/imageView"
             android:layout_width="match_parent"
@@ -76,8 +76,22 @@
 
     </LinearLayout>
 
+        <TextView
+            android:id="@+id/URLTextView"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_alignParentBottom="true"
+            android:autoLink="web"
+            android:gravity="center"
+            android:linksClickable="true"
+            android:paddingTop="8dp"
+            android:paddingBottom="35dp"
+            android:text="@string/repourl"
+            android:textColor="#00796B"
+            android:textSize="12sp" />
+
     <TextView
-        android:id="@+id/footerText"
+        android:id="@+id/versionView"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_alignParentBottom="true"
@@ -85,8 +99,7 @@
         android:gravity="center"
         android:linksClickable="true"
         android:paddingTop="8dp"
-        android:paddingBottom="8dp"
-        android:text="@string/repourl"
-        android:textColor="#00796B"
+        android:paddingBottom="5dp"
         android:textSize="12sp" />
-    </RelativeLayout>
+
+</RelativeLayout>
