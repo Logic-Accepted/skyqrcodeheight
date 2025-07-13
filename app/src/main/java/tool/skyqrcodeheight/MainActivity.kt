@@ -21,18 +21,13 @@ import androidx.core.graphics.createBitmap
 import androidx.core.graphics.get
 import androidx.core.graphics.scale
 import androidx.core.graphics.set
-import com.google.zxing.BinaryBitmap
-import com.google.zxing.MultiFormatReader
-import com.google.zxing.Result
-import com.google.zxing.RGBLuminanceSource
-import com.google.zxing.common.GlobalHistogramBinarizer
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.lifecycle.lifecycleScope
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.common.InputImage
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.text.DecimalFormat
 
@@ -157,7 +152,7 @@ class MainActivity : AppCompatActivity() {
                             resultView.text = "扫码成功但解码失败"
                         }
                     } else {
-                        resultView.text = "多次缩放后仍未识别二维码，可以尝试更换手机重新截图二维码或者更换装扮重新截图二维码"
+                        resultView.text = "多次缩放后仍未识别二维码，可以尝试更换手机重新截图二维码"
                     }
                 }
             } ?: run {
@@ -198,12 +193,7 @@ class MainActivity : AppCompatActivity() {
                 val barcode = barcodes.firstOrNull()
                 if (barcode != null){
                     return barcode.rawValue
-                } /*else {
-                    val fallback = tryZxingDecode(resized)
-                    if (fallback != null) {
-                        return fallback
-                    }
-                }*/
+                }
             } catch (_: Exception) { }
         }
         return null
@@ -277,18 +267,6 @@ class MainActivity : AppCompatActivity() {
         return formatter.format(value)
     }
 
-    private fun tryZxingDecode(bitmap: Bitmap): String? {
-        val intArray = IntArray(bitmap.width * bitmap.height)
-        bitmap.getPixels(intArray, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-        val source = RGBLuminanceSource(bitmap.width, bitmap.height, intArray)
-        val bitmapZX = BinaryBitmap(GlobalHistogramBinarizer(source))
-        return try {
-            val result: Result = MultiFormatReader().decode(bitmapZX)
-            result.text
-        } catch (_: Exception) {
-            null
-        }
-    }
 
     private fun showChangelogDialog() {
         val changelog = """
@@ -296,6 +274,7 @@ class MainActivity : AppCompatActivity() {
         - 使用更可靠的正则检测数据是否完整
         - 加入数据存在问题时的操作指引弹窗
         - Zxing 存在问题，暂时不用
+        - 修改一些描述
         v1.4
         - 加入协程防止阻塞主线程
         - 使用离线 ML Kit 提高兼容性
@@ -323,11 +302,11 @@ class MainActivity : AppCompatActivity() {
 
     private fun showDataBrokenDialog() {
         val dataBrokenMsg = """
-        你的二维码解析时存在问题，请切换装扮然后重新截图二维码再尝试
+        目前本方法暂无法完全准确地解析和反序列化游戏内二维码原始内容，所以存在无法正确测算的可能。本二维码解析时即存在问题，目前暂无解决方案，十分抱歉。
     """.trimIndent()
 
         AlertDialog.Builder(this)
-            .setTitle("请重试")
+            .setTitle("出现错误")
             .setMessage(dataBrokenMsg)
             .setPositiveButton("关闭", null)
             .show()
